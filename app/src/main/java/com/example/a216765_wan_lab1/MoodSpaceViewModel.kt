@@ -6,6 +6,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
+data class SimpleActivity(
+    val title: String,
+    val time: String
+)
+
 data class MoodSpaceUiState(
     val displayedName: String = "",
     val moodDone: Boolean = false,
@@ -16,7 +21,8 @@ data class MoodSpaceUiState(
     val outOfBedTime: String = "7:00 AM",
     val sleepDuration: String = "8 hr",
     val readMessages: Set<Int> = emptySet(),
-    val showAllGoalsPopup: Boolean = false
+    val showAllGoalsPopup: Boolean = false,
+    val activities: List<SimpleActivity> = emptyList()
 )
 
 class MoodSpaceViewModel : ViewModel() {
@@ -60,6 +66,12 @@ class MoodSpaceViewModel : ViewModel() {
 
     fun dismissAllGoalsPopup() {
         _uiState.update { it.copy(showAllGoalsPopup = false) }
+    }
+
+    fun addActivity(title: String, time: String) {
+        _uiState.update {
+            it.copy(activities = it.activities + SimpleActivity(title, time))
+        }
     }
 
     private fun checkAllGoalsDone() {

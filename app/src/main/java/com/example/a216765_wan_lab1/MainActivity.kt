@@ -3,9 +3,12 @@ package com.example.a216765_wan_lab1
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,17 +41,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.text.SimpleDateFormat
 import java.util.*
-
-// ── DATA CLASS ──
-
-
-// ── VIEWMODEL ──
 
 // ── NAVIGATION ROUTES ──
 sealed class Screen(val route: String) {
@@ -57,6 +56,7 @@ sealed class Screen(val route: String) {
     object History : Screen("history")
     object Insights : Screen("insights")
     object Sleep : Screen("sleep")
+    object SimpleActivity : Screen("simple_activity")
     object InboxDetail : Screen("inbox_detail/{messageIndex}") {
         fun createRoute(index: Int) = "inbox_detail/$index"
     }
@@ -80,6 +80,8 @@ val GoalPurpleTxt = Color(0xFF6b52b8)
 val GoalEmpty     = Color(0xFFf5f5f5)
 val Black         = Color(0xFF000000)
 val UnreadRed     = Color(0xFFE53935)
+val ActivityOrange = Color(0xFFFF9800)
+val ActivityOrangeBg = Color(0xFFFFF3E0)
 
 // ── MAIN ACTIVITY ──
 class MainActivity : ComponentActivity() {
@@ -108,6 +110,11 @@ fun getCurrentDateTime(): String {
     return sdf.format(Date())
 }
 
+fun getCurrentTime(): String {
+    val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
+    return sdf.format(Date())
+}
+
 // ── NAVIGATION HOST ──
 @Composable
 fun MoodSpaceNavigation() {
@@ -130,6 +137,9 @@ fun MoodSpaceNavigation() {
         composable(Screen.Sleep.route) {
             SleepScreen(navController = navController, viewModel = viewModel)
         }
+        composable(Screen.SimpleActivity.route) {
+            SimpleActivityScreen(navController = navController, viewModel = viewModel)
+        }
         composable("inbox_detail/{messageIndex}") { backStackEntry ->
             val index = backStackEntry.arguments?.getString("messageIndex")?.toIntOrNull() ?: 0
             InboxDetailScreen(navController = navController, viewModel = viewModel, messageIndex = index)
@@ -137,9 +147,90 @@ fun MoodSpaceNavigation() {
     }
 }
 
+// ══════════════════════════════════════════════
+// ── REUSABLE COMPOSABLE 1: GoalCardImage ──
+// Used for: Mood, Gratitude, Sleep cards on Home
+// ══════════════════════════════════════════════
+@Composable
+fun GoalCardImage(
+    icon: Painter,
+    label: String,
+    bgColor: Color,
+    textColor: Color,
+    isDone: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier.aspectRatio(1f).clip(RoundedCornerShape(12.dp)).background(bgColor),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                modifier = Modifier.fillMaxWidth(0.75f).fillMaxHeight(0.75f),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(painter = icon, contentDescription = label,
+                    modifier = Modifier.fillMaxSize(), tint = Color.Unspecified)
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = textColor)
+        }
+        if (isDone) {
+            Box(
+                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
+                    .size(18.dp).clip(CircleShape).background(MintGreen),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("✓", fontSize = 10.sp, color = White)
+            }
+        }
+    }
+}
+
+// ══════════════════════════════════════════════
+// ── REUSABLE COMPOSABLE 2: ActivityCard ──
+// Used for: History screen entries (Mood, Gratitude, Sleep, Simple Activity)
+// ══════════════════════════════════════════════
+@Composable
+fun ActivityCard(
+    bgColor: Color,
+    title: String,
+    subtitle: String = "",
+    timeText: String,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Row(
+            modifier = Modifier.fillMaxWidth().background(White)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(bgColor)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row {
+                    Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Black)
+                    if (subtitle.isNotEmpty()) {
+                        Text(" $subtitle", fontSize = 15.sp, color = SageMuted)
+                    }
+                }
+                Text(timeText, fontSize = 11.sp, color = SageMuted)
+            }
+            Text("›", fontSize = 20.sp, color = SageMuted)
+        }
+        HorizontalDivider(color = MintBorder, thickness = 0.5.dp)
+    }
+}
+
 // ── BOTTOM NAV BAR ──
 @Composable
-fun AppBottomBar(navController: NavController, viewModel: MoodSpaceViewModel) {
+fun AppBottomBar(
+    navController: NavController,
+    viewModel: MoodSpaceViewModel,
+    onPlusClick: () -> Unit
+) {
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
     val uiState by viewModel.uiState.collectAsState()
     val unreadCount = (0..2).count { it !in uiState.readMessages }
@@ -184,8 +275,12 @@ fun AppBottomBar(navController: NavController, viewModel: MoodSpaceViewModel) {
             }
         }
 
-        Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(MintGreen),
-            contentAlignment = Alignment.Center) {
+        // Plus button — triggers popup
+        Box(
+            modifier = Modifier.size(44.dp).clip(CircleShape).background(MintGreen)
+                .clickable { onPlusClick() },
+            contentAlignment = Alignment.Center
+        ) {
             Icon(painter = plusIcon, contentDescription = "Add",
                 modifier = Modifier.size(32.dp), tint = White)
         }
@@ -218,6 +313,7 @@ fun MoodSpaceApp(navController: NavController, viewModel: MoodSpaceViewModel) {
     var nameInput by remember { mutableStateOf("") }
     var showMoodDialog by remember { mutableStateOf(false) }
     var showGratitudePage by remember { mutableStateOf(false) }
+    var showPlusMenu by remember { mutableStateOf(false) }
 
     if (showGratitudePage) {
         GratitudePage(
@@ -275,6 +371,29 @@ fun MoodSpaceApp(navController: NavController, viewModel: MoodSpaceViewModel) {
         }
     }
 
+    // Plus menu popup
+    if (showPlusMenu) {
+        Dialog(onDismissRequest = { showPlusMenu = false }) {
+            Card(shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = White),
+                modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth().clickable {
+                        showPlusMenu = false
+                        navController.navigate(Screen.SimpleActivity.route)
+                    }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Simple Activity", fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium, color = Black)
+                            Text("Quickly add a simple activity.", fontSize = 12.sp, color = SageMuted)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     val doneCount = listOf(uiState.moodDone, uiState.gratitudeDone, uiState.sleepDone).count { it }
     val totalGoals = 3
     val percentage = ((doneCount.toFloat() / totalGoals) * 100).toInt()
@@ -323,12 +442,10 @@ fun MoodSpaceApp(navController: NavController, viewModel: MoodSpaceViewModel) {
                         modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MintGreen)) {
                         Text("Save Name", fontSize = 14.sp, color = White) }
-
                     if (uiState.displayedName.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text("Welcome back, ${uiState.displayedName}! 💚",
                             fontSize = 13.sp, color = MintGreen, fontWeight = FontWeight.Bold)
-
                     }
                 }
             }
@@ -378,9 +495,11 @@ fun MoodSpaceApp(navController: NavController, viewModel: MoodSpaceViewModel) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // GoalCardImage reusable composable — Usage 1
                         GoalCardImage(icon = smileFaceIcon, label = "Mood",
                             bgColor = GoalBlue, textColor = GoalBlueTxt, isDone = uiState.moodDone,
                             modifier = Modifier.weight(1f).clickable { showMoodDialog = true })
+                        // GoalCardImage reusable composable — Usage 2
                         GoalCardImage(icon = heartIcon, label = "Gratitude",
                             bgColor = GoalPink, textColor = GoalPinkTxt, isDone = uiState.gratitudeDone,
                             modifier = Modifier.weight(1f).clickable { showGratitudePage = true })
@@ -388,6 +507,7 @@ fun MoodSpaceApp(navController: NavController, viewModel: MoodSpaceViewModel) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Row(modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // GoalCardImage reusable composable — Usage 3
                         GoalCardImage(icon = sleepIcon, label = "Sleep",
                             bgColor = GoalPurple, textColor = GoalPurpleTxt, isDone = uiState.sleepDone,
                             modifier = Modifier.weight(1f).clickable {
@@ -471,7 +591,213 @@ fun MoodSpaceApp(navController: NavController, viewModel: MoodSpaceViewModel) {
         }
 
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-            AppBottomBar(navController = navController, viewModel = viewModel)
+            AppBottomBar(
+                navController = navController,
+                viewModel = viewModel,
+                onPlusClick = { showPlusMenu = true }
+            )
+        }
+    }
+}
+
+// ── SIMPLE ACTIVITY SCREEN ──
+@Composable
+fun SimpleActivityScreen(navController: NavController, viewModel: MoodSpaceViewModel) {
+    var activityTitle by remember { mutableStateOf("") }
+    var showUnsavedDialog by remember { mutableStateOf(false) }
+    var showSavedBanner by remember { mutableStateOf(false) }
+    val currentTime = remember { getCurrentTime() }
+    val currentDate = remember { getCurrentDateTime() }
+
+    // Auto-hide saved banner after 2 seconds then navigate back
+    LaunchedEffect(showSavedBanner) {
+        if (showSavedBanner) {
+            delay(1800)
+            showSavedBanner = false
+            navController.navigate(Screen.Home.route) {
+                popUpTo(Screen.Home.route) { inclusive = true }
+            }
+        }
+    }
+
+    if (showUnsavedDialog) {
+        Dialog(onDismissRequest = { showUnsavedDialog = false }) {
+            Card(shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = White),
+                modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("🖐 Unsaved Changes", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Black)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Do you want to save them?", fontSize = 13.sp, color = SageMuted)
+                    Spacer(modifier = Modifier.height(20.dp))
+                    TextButton(onClick = {
+                        if (activityTitle.isNotEmpty()) {
+                            viewModel.addActivity(activityTitle, currentTime)
+                        }
+                        showUnsavedDialog = false
+                        showSavedBanner = true
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Save", fontSize = 15.sp, color = MintGreen) }
+                    HorizontalDivider(color = MintBorder, thickness = 0.5.dp)
+                    TextButton(onClick = {
+                        showUnsavedDialog = false
+                        navController.popBackStack()
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Don't Save", fontSize = 15.sp, color = Color(0xFFE57373)) }
+                    HorizontalDivider(color = MintBorder, thickness = 0.5.dp)
+                    TextButton(onClick = { showUnsavedDialog = false }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Cancel", fontSize = 15.sp, color = SageMuted) }
+                }
+            }
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF5F5F5))) {
+
+            // Top bar
+            Row(modifier = Modifier.fillMaxWidth().background(White)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(onClick = {
+                    if (activityTitle.isNotEmpty()) showUnsavedDialog = true
+                    else navController.popBackStack()
+                }) {
+                    Text("✕", fontSize = 20.sp, color = Black, fontWeight = FontWeight.Bold) }
+                Text("Simple Activity", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Black)
+                TextButton(onClick = {
+                    if (activityTitle.isNotEmpty()) {
+                        viewModel.addActivity(activityTitle, currentTime)
+                        showSavedBanner = true
+                    }
+                }) {
+                    Text("Save", fontSize = 15.sp, color = if (activityTitle.isNotEmpty()) Black else SageMuted,
+                        fontWeight = FontWeight.Bold) }
+            }
+
+            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = White)) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+
+                        // Description row
+                        Text("Enter your activity.", fontSize = 13.sp, color = SageMuted)
+                        HorizontalDivider(color = MintBorder, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 12.dp))
+
+                        // Date row
+                        Row(modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("📅", fontSize = 16.sp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Date", fontSize = 13.sp, color = Black, fontWeight = FontWeight.Medium)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("Today", fontSize = 13.sp, color = SageDark)
+                                Text(currentTime, fontSize = 12.sp, color = SageMuted)
+                            }
+                        }
+
+                        HorizontalDivider(color = MintBorder, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 12.dp))
+
+                        // Title input row
+                        Row(verticalAlignment = Alignment.Top) {
+                            Text("✏️", fontSize = 16.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Title", fontSize = 13.sp, color = Black,
+                                    fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                OutlinedTextField(
+                                    value = activityTitle,
+                                    onValueChange = { activityTitle = it },
+                                    placeholder = { Text("Enter activity title.", fontSize = 13.sp, color = SageMuted) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = MintGreen,
+                                        unfocusedBorderColor = Color.Transparent),
+                                    singleLine = true
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = MintBorder, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 12.dp))
+
+                        // Optional section
+                        Row(modifier = Modifier.fillMaxWidth().background(Color(0xFFF0F0F0))
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Optional", fontSize = 12.sp, color = SageMuted)
+                            Text("show", fontSize = 12.sp, color = SageMuted)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Share button
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    OutlinedButton(onClick = {}, shape = RoundedCornerShape(20.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = SageMuted),
+                        border = BorderStroke(0.5.dp, MintBorder),
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp)) {
+                        Text("↗ SHARE", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = SageMuted)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // About Simple Activity card
+                Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = White)) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text("About Simple Activity", fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold, color = Black)
+                            Text("hide", fontSize = 12.sp, color = SageMuted)
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text("The Simple Activity entry type is a quick way to enter an item into your history that you want to track and note how it's affected your mood.",
+                            fontSize = 12.sp, color = SageMid, lineHeight = 18.sp)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text("If it's an activity that you'll do regularly, then consider creating a Custom Activity which will show up in your Activity menu and on charts on the Insights screen.",
+                            fontSize = 12.sp, color = SageMid, lineHeight = 18.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(40.dp))
+            }
+        }
+
+        // SAVED banner — shows at top center, auto-dismisses
+        AnimatedVisibility(
+            visible = showSavedBanner,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 80.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50.dp))
+                    .background(MintGreen)
+                    .padding(horizontal = 28.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("✓", fontSize = 16.sp, color = White, fontWeight = FontWeight.Bold)
+                    Text("SAVED", fontSize = 15.sp, color = White, fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp)
+                }
+            }
         }
     }
 }
@@ -564,7 +890,9 @@ fun InboxScreen(navController: NavController, viewModel: MoodSpaceViewModel) {
             }
         }
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-            AppBottomBar(navController = navController, viewModel = viewModel)
+            AppBottomBar(navController = navController, viewModel = viewModel, onPlusClick = {
+                navController.navigate(Screen.SimpleActivity.route)
+            })
         }
     }
 }
@@ -575,7 +903,7 @@ fun InboxDetailScreen(navController: NavController, viewModel: MoodSpaceViewMode
     val messages = listOf(
         Pair("Free Guest Pass", buildAnnotatedString {
             append("Help a friend stress less, sleep better, and feel happier.\n\n")
-            append("When you send a Guest Pass to a new member, they'll get free access to all of MoodSpace for a week. And there's no obligation and no credit card required.\n\n")
+            append("When you send a Guest Pass to a new member, they'll get free access to all of MoodSpace for a week.\n\n")
             append("To share a Guest Pass simply share this notice or a screenshot.\n\n")
             withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("MoodSpace\nFree 7 Day Guest Pass\n\n") }
             append("Go to getmoodspace.com/redeem\n\nCreate account using program code ")
@@ -628,6 +956,7 @@ fun InboxDetailScreen(navController: NavController, viewModel: MoodSpaceViewMode
 @Composable
 fun HistoryScreen(navController: NavController, viewModel: MoodSpaceViewModel) {
     val uiState by viewModel.uiState.collectAsState()
+    val todayTime = remember { SimpleDateFormat("h:mma", Locale.getDefault()).format(Date()) }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFFF5F5F5))) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -646,62 +975,45 @@ fun HistoryScreen(navController: NavController, viewModel: MoodSpaceViewModel) {
                     Text("Today", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Black)
                 }
 
+                // ActivityCard reusable composable — Usage 1 (Mood)
                 if (uiState.moodDone) {
-                    Row(modifier = Modifier.fillMaxWidth().background(White)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(GoalBlue))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row {
-                                Text("Mood ", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Black)
-                                Text(uiState.selectedMood, fontSize = 15.sp, color = SageMuted)
-                            }
-                            Text(SimpleDateFormat("h:mma", Locale.getDefault()).format(Date()),
-                                fontSize = 11.sp, color = SageMuted)
-                        }
-                        Text("›", fontSize = 20.sp, color = SageMuted)
-                    }
-                    HorizontalDivider(color = MintBorder, thickness = 0.5.dp)
+                    ActivityCard(
+                        bgColor = GoalBlue,
+                        title = "Mood",
+                        subtitle = uiState.selectedMood,
+                        timeText = todayTime
+                    )
                 }
 
+                // ActivityCard reusable composable — Usage 2 (Gratitude)
                 if (uiState.gratitudeDone) {
-                    Row(modifier = Modifier.fillMaxWidth().background(White)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(GoalPink))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Gratitude", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Black)
-                            Text(SimpleDateFormat("h:mma", Locale.getDefault()).format(Date()),
-                                fontSize = 11.sp, color = SageMuted)
-                        }
-                        Text("›", fontSize = 20.sp, color = SageMuted)
-                    }
-                    HorizontalDivider(color = MintBorder, thickness = 0.5.dp)
+                    ActivityCard(
+                        bgColor = GoalPink,
+                        title = "Gratitude",
+                        timeText = todayTime
+                    )
                 }
 
+                // ActivityCard reusable composable — Usage 3 (Sleep)
                 if (uiState.sleepDone) {
-                    Row(modifier = Modifier.fillMaxWidth().background(White)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(GoalPurple))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row {
-                                Text("Sleep ", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Black)
-                                Text("${uiState.sleepDuration}, ${uiState.inBedTime} - ${uiState.outOfBedTime}",
-                                    fontSize = 13.sp, color = SageMuted)
-                            }
-                            Text(SimpleDateFormat("h:mma", Locale.getDefault()).format(Date()),
-                                fontSize = 11.sp, color = SageMuted)
-                        }
-                        Text("›", fontSize = 20.sp, color = SageMuted)
-                    }
-                    HorizontalDivider(color = MintBorder, thickness = 0.5.dp)
+                    ActivityCard(
+                        bgColor = GoalPurple,
+                        title = "Sleep",
+                        subtitle = "${uiState.sleepDuration}, ${uiState.inBedTime} - ${uiState.outOfBedTime}",
+                        timeText = todayTime
+                    )
                 }
 
-                if (!uiState.moodDone && !uiState.gratitudeDone && !uiState.sleepDone) {
+                // ActivityCard reusable composable — Usage 4+ (Simple Activities)
+                uiState.activities.forEach { activity ->
+                    ActivityCard(
+                        bgColor = ActivityOrangeBg,
+                        title = activity.title,
+                        timeText = activity.time
+                    )
+                }
+
+                if (!uiState.moodDone && !uiState.gratitudeDone && !uiState.sleepDone && uiState.activities.isEmpty()) {
                     Spacer(modifier = Modifier.height(40.dp))
                     Text("No entries yet today. Complete your daily goals!",
                         fontSize = 13.sp, color = SageMuted,
@@ -711,7 +1023,9 @@ fun HistoryScreen(navController: NavController, viewModel: MoodSpaceViewModel) {
             }
         }
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-            AppBottomBar(navController = navController, viewModel = viewModel)
+            AppBottomBar(navController = navController, viewModel = viewModel, onPlusClick = {
+                navController.navigate(Screen.SimpleActivity.route)
+            })
         }
     }
 }
@@ -776,7 +1090,9 @@ fun InsightsScreen(navController: NavController, viewModel: MoodSpaceViewModel) 
             }
         }
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-            AppBottomBar(navController = navController, viewModel = viewModel)
+            AppBottomBar(navController = navController, viewModel = viewModel, onPlusClick = {
+                navController.navigate(Screen.SimpleActivity.route)
+            })
         }
     }
 }
@@ -1156,13 +1472,10 @@ fun GratitudePage(onSave: () -> Unit, onBack: () -> Unit) {
                     }
                     if (showAboutGratitude) {
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("Keeping a daily gratitude journal has been shown to increase positive emotions. The process of mentally seeking things you are grateful for can literally rewire how your brain processes events and begins to call attention to more and more of the positives in life.",
+                        Text("Keeping a daily gratitude journal has been shown to increase positive emotions.",
                             fontSize = 12.sp, color = SageMid, lineHeight = 18.sp)
                         Spacer(modifier = Modifier.height(10.dp))
                         Text("Expressing why you're grateful for these items gives your brain additional opportunity to build a gratitude mindset.",
-                            fontSize = 12.sp, color = SageMid, lineHeight = 18.sp)
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text("Spending time savouring the items that you're grateful for gives your brain even more opportunity to build a gratitude mindset.",
                             fontSize = 12.sp, color = SageMid, lineHeight = 18.sp)
                         Spacer(modifier = Modifier.height(10.dp))
                         Text("Finally, sending expressions of gratitude to others increases positive emotions for both the sender and receiver.",
@@ -1228,31 +1541,6 @@ fun MoodDialog(currentMood: String, onSave: (String) -> Unit, onDismiss: () -> U
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MintGreen, unfocusedBorderColor = MintBorder))
-            }
-        }
-    }
-}
-
-// ── REUSABLE: Goal Card ──
-@Composable
-fun GoalCardImage(icon: Painter, label: String, bgColor: Color,
-                  textColor: Color, isDone: Boolean, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.aspectRatio(1f).clip(RoundedCornerShape(12.dp)).background(bgColor),
-        contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(modifier = Modifier.fillMaxWidth(0.75f).fillMaxHeight(0.75f),
-                contentAlignment = Alignment.Center) {
-                Icon(painter = icon, contentDescription = label,
-                    modifier = Modifier.fillMaxSize(), tint = Color.Unspecified)
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = textColor)
-        }
-        if (isDone) {
-            Box(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
-                .size(18.dp).clip(CircleShape).background(MintGreen),
-                contentAlignment = Alignment.Center) {
-                Text("✓", fontSize = 10.sp, color = White)
             }
         }
     }
