@@ -119,7 +119,11 @@ fun getCurrentTime(): String {
 @Composable
 fun MoodSpaceNavigation() {
     val navController = rememberNavController()
-    val viewModel: MoodSpaceViewModel = viewModel()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val application = context.applicationContext as MoodSpaceApplication
+    val viewModel: MoodSpaceViewModel = viewModel(
+        factory = MoodSpaceViewModel.factory(application.repository)
+    )
 
     NavHost(navController = navController, startDestination = Screen.Home.route) {
         composable(Screen.Home.route) {
@@ -366,6 +370,141 @@ fun MoodSpaceApp(navController: NavController, viewModel: MoodSpaceViewModel) {
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                     Text("You completed all your daily goals!", fontSize = 13.sp, color = SageMuted)
+                }
+            }
+        }
+    }
+
+    // ── MENTAL HEALTH POPUP ──
+    if (uiState.showMentalHealthPopup) {
+        val result = uiState.latestMentalHealthResult
+        if (result != null) {
+            Dialog(onDismissRequest = { viewModel.dismissMentalHealthPopup() }) {
+                Card(
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = White),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // Header
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Spacer(modifier = Modifier.width(40.dp))
+                            Text(
+                                "Mental Health Check",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Black
+                            )
+                            TextButton(onClick = { viewModel.dismissMentalHealthPopup() }) {
+                                Text("✕", fontSize = 16.sp, color = SageMuted)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Big emoji
+                        Text(result.emoji, fontSize = 48.sp)
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Status title with color
+                        val statusColor = when (result.color) {
+                            "green"  -> Color(0xFF2e7d32)
+                            "yellow" -> Color(0xFFf57f17)
+                            "orange" -> Color(0xFFe65100)
+                            "red"    -> Color(0xFFc62828)
+                            else     -> MintGreen
+                        }
+                        val statusBg = when (result.color) {
+                            "green"  -> Color(0xFFe8f5e9)
+                            "yellow" -> Color(0xFFfffde7)
+                            "orange" -> Color(0xFFfff3e0)
+                            "red"    -> Color(0xFFffebee)
+                            else     -> MintSurface
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(statusBg)
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                result.status,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = statusColor,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Message
+                        Text(
+                            result.message,
+                            fontSize = 13.sp,
+                            color = SageDark,
+                            lineHeight = 20.sp,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        HorizontalDivider(color = MintBorder, thickness = 0.5.dp)
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Advice box
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MintSurface)
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Text("💡", fontSize = 14.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                result.advice,
+                                fontSize = 12.sp,
+                                color = SageDark,
+                                lineHeight = 18.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Note about history
+                        Text(
+                            "📋 This result has been saved to your History.",
+                            fontSize = 11.sp,
+                            color = SageMuted,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Close button
+                        Button(
+                            onClick = { viewModel.dismissMentalHealthPopup() },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MintGreen)
+                        ) {
+                            Text("Got it 💚", fontSize = 14.sp, color = White)
+                        }
+                    }
                 }
             }
         }
@@ -1004,12 +1143,89 @@ fun HistoryScreen(navController: NavController, viewModel: MoodSpaceViewModel) {
                     )
                 }
 
+                // ── MENTAL HEALTH RESULTS IN HISTORY ──
+                if (uiState.mentalHealthHistory.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier.fillMaxWidth()
+                            .background(Color(0xFFE8F5E9))
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            "Mental Health Check-in",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF2e7d32)
+                        )
+                    }
+
+                    uiState.mentalHealthHistory.forEach { result ->
+                        val bgColor = when (result.color) {
+                            "green"  -> Color(0xFFe8f5e9)
+                            "yellow" -> Color(0xFFfffde7)
+                            "orange" -> Color(0xFFfff3e0)
+                            "red"    -> Color(0xFFffebee)
+                            else     -> MintSurface
+                        }
+                        val textColor = when (result.color) {
+                            "green"  -> Color(0xFF2e7d32)
+                            "yellow" -> Color(0xFFf57f17)
+                            "orange" -> Color(0xFFe65100)
+                            "red"    -> Color(0xFFc62828)
+                            else     -> SageDark
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(White)
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Colored box indicator
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(bgColor),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(result.emoji, fontSize = 20.sp)
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    result.status,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textColor
+                                )
+                                Text(
+                                    result.message.take(60) + "...",
+                                    fontSize = 11.sp,
+                                    color = SageMuted,
+                                    lineHeight = 16.sp
+                                )
+                                Text(result.time, fontSize = 11.sp, color = SageMuted)
+                            }
+                        }
+                        HorizontalDivider(color = MintBorder, thickness = 0.5.dp)
+                    }
+                }
+
                 // ActivityCard reusable composable — Usage 4+ (Simple Activities)
-                uiState.activities.forEach { activity ->
+                uiState.savedActivities.forEach { entity ->
+                    val bgColor = when (entity.type) {
+                        "mood"          -> GoalBlue
+                        "gratitude"     -> GoalPink
+                        "sleep"         -> GoalPurple
+                        "mental_health" -> Color(0xFFE8F5E9)
+                        else            -> ActivityOrangeBg
+                    }
                     ActivityCard(
-                        bgColor = ActivityOrangeBg,
-                        title = activity.title,
-                        timeText = activity.time
+                        bgColor  = bgColor,
+                        title    = entity.title,
+                        timeText = entity.time
                     )
                 }
 
@@ -1173,16 +1389,30 @@ fun SleepScreen(navController: NavController, viewModel: MoodSpaceViewModel) {
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.Top) {
                         Text("🛏", fontSize = 18.sp)
                         Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("In Bed", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Black)
-                            Spacer(modifier = Modifier.height(6.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 listOf("10:00 PM", "11:00 PM", "12:00 AM", "1:00 AM").forEach { time ->
-                                    Box(modifier = Modifier.clip(RoundedCornerShape(20.dp))
+                                    Box(modifier = Modifier
+                                        .clip(RoundedCornerShape(20.dp))
                                         .background(if (inBedTime == time) MintGreen else Color(0xFFEEEEEE))
                                         .clickable { inBedTime = time }
-                                        .padding(horizontal = 10.dp, vertical = 5.dp)) {
-                                        Text(time, fontSize = 11.sp, color = if (inBedTime == time) White else Black)
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    ) {
+                                        Text(time, fontSize = 11.sp,
+                                            color = if (inBedTime == time) White else Black)
+                                    }
+                                }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM").forEach { time ->
+                                    Box(modifier = Modifier
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(if (inBedTime == time) MintGreen else Color(0xFFEEEEEE))
+                                        .clickable { inBedTime = time }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    ) {
+                                        Text(time, fontSize = 11.sp,
+                                            color = if (inBedTime == time) White else Black)
                                     }
                                 }
                             }
@@ -1195,16 +1425,30 @@ fun SleepScreen(navController: NavController, viewModel: MoodSpaceViewModel) {
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.Top) {
                         Text("🌅", fontSize = 18.sp)
                         Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Out of Bed", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Black)
-                            Spacer(modifier = Modifier.height(6.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 listOf("6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM").forEach { time ->
-                                    Box(modifier = Modifier.clip(RoundedCornerShape(20.dp))
+                                    Box(modifier = Modifier
+                                        .clip(RoundedCornerShape(20.dp))
                                         .background(if (outOfBedTime == time) MintGreen else Color(0xFFEEEEEE))
                                         .clickable { outOfBedTime = time }
-                                        .padding(horizontal = 10.dp, vertical = 5.dp)) {
-                                        Text(time, fontSize = 11.sp, color = if (outOfBedTime == time) White else Black)
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    ) {
+                                        Text(time, fontSize = 11.sp,
+                                            color = if (outOfBedTime == time) White else Black)
+                                    }
+                                }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("10:00 AM").forEach { time ->
+                                    Box(modifier = Modifier
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(if (outOfBedTime == time) MintGreen else Color(0xFFEEEEEE))
+                                        .clickable { outOfBedTime = time }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    ) {
+                                        Text(time, fontSize = 11.sp,
+                                            color = if (outOfBedTime == time) White else Black)
                                     }
                                 }
                             }
